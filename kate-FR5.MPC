@@ -1,0 +1,201 @@
+\ Copyright (c) 2014 MEDState Notation Repository, All rights reserved.
+
+\ FixedRatio_v2.mpc
+\
+\ When the program is started it will turn on the HouseLight and the lights over
+\ both Levers.  The program will then wait for the Animal to respond on the
+\ Correct Lever enough times to meet the Fixed Ratio Value.
+\
+\ When the Fixed Ratio Value has been met the program will turn on the Reward
+\ Device for the Reward Time.  At the end of the Reward Time the program will
+\ time the Time Out Following Reward.
+\
+\ When the Time Out Following Reward has been completed the program will once
+\ again wait for the Animal to respond on the Correct Lever enough times to meet
+\ the Fixed Ratio Value.
+\
+\ Responses on the Incorrect Lever will be recorded, but have no adverse affect.
+\
+\ The program will end when the Session Length has been reached.
+
+
+\ Inputs
+^LeftLever  = 1
+^RightLever = 2
+
+
+\ Outputs
+^Pellet     = 3
+^LeftLight  = 5
+^RightLight = 6
+^HouseLight = 7
+^leftlever = 1
+^rightlever = 2
+
+
+\ A() = Control Variables with Assigned Aliases as Defined
+Var_Alias Session Length (min)            = A(0)  \ Default = 60 minutes
+Var_Alias Max Rewards                     = A(1)  \ Default = 100
+Var_Alias Fixed Ratio Value               = A(2)  \ Default = 5
+Var_Alias Time Out Following Reward (sec) = A(3)  \ Default = 0 seconds
+
+^Session      = 0
+^MaxRewards   = 1
+^FRVal        = 2
+^TimeOut      = 3
+^TimeOutTicks = 4
+
+
+\ List Data Variables Here
+\  B() = Response Counts
+\  B(0) = Total Responses
+\  B(1) = Total Correct   Response Count
+\  B(2) = Total Incorrect Response Count
+\  B(3) = Total Rewards
+\  B(4) = % Correct
+\  B(5) = % Incorrect
+\
+\  L() = Left  Lever Response Array
+\  R() = Right Lever Response Array
+\
+\  S = Elapsed Time in Session
+
+
+\ List Working Variables Here
+\  C = Ratio Response Counter
+\  I = Index into Left  Lever Response Array L
+\  J = Index into Right Lever Response Array R
+
+
+
+DIM A = 4
+DIM B = 5
+DIM L = 10000
+DIM R = 10000
+
+
+\ Z-Pulses Used in this Program
+^Z_Reward    = 1   \ Signal Pellet Reinforcement
+^Z_End       = 32  \ Signal End of Session
+
+
+\***************************************************
+\               Fixed Ratio Schedule
+\  S1 - Set Default Values
+\       Session Length             (60 minutes)
+\       Max Rewards                (100)
+\       Fixed Ratio Value          (5)
+\       Time Out Following Reward  (0 seconds)
+\***************************************************
+S.S.1,
+S1,
+  0.01": SET A(^Session) = 60, A(^MaxRewards) = 100;
+         SET A(^FRVal)   = 5,  A(^TimeOut)    = 0;
+         SET L(I) = -987.987;
+         SET R(J) = -987.987 ---> S2
+
+S2,     \ First Statement: Wait for START signal, turn HouseLight and
+        \ associated stimulus ON.
+        \
+        \ Second Statement: Update screen display with default values
+        \ for Control Variables.  This will show any changes made via
+        \ the "Configure | Change Variables" Window prior to START.
+  #START: CLEAR 1,200;
+          SET A(^TimeOutTicks) = A(^TimeOut) * 1";
+          ON ^HouseLight, ^LeftLight, ^RightLight; ON^leftlever; ON^rightlever;
+          SHOW 1,Session,S/60 ---> S3
+  1": SHOW 1,Session Length,A(^Session), 2,Max Rewards,A(^MaxRewards);
+      SHOW 3,FR Value,A(^FRVal),         4,Time Out,A(^TimeOut) ---> SX
+
+S3,     \ Time Session Length
+  0.01": SET S = S + 0.01;
+         SHOW 1,Session,S/60;
+         IF S/60 >= A(^Session) [@EndSession, @ContinueTiming]
+            @End: Z^Z_End ---> S4
+            @Cont: ---> SX
+  #Z^Z_End: ---> S4
+
+S4,     \ Wait for Screen Update and end with
+        \ STOPABORTFLUSH for Automatic Data Saving
+  2": ---> STOPABORTFLUSH
+
+
+\***************************************************
+\                   MAIN PROGRAM
+\***************************************************
+S.S.2,
+S1,
+  #START: ---> S2
+
+S2,     \ Fixed Ratio
+  #R^LeftLever: ADD B(0), B(1), C;
+                IF C >= A(^FRVal) [@FR_Value_Met, @False]
+                   @FR_Met: ADD B(3); SET C = 0;
+                            Z^Z_Reward ---> S3
+                   @False: ---> SX
+  #R^RightLever: ADD B(0), B(2) ---> SX
+  #Z^Z_End: ---> S4
+
+S3,     \ Time Out Interval Following Reward
+  A(^TimeOutTicks)#T: IF B(3) >= A(^MaxRewards) [@End, @Cont]
+                         @End: Z^Z_End ---> S4
+                         @Cont: ---> S2
+  #Z^Z_End: ---> S4
+
+S4,     \ End of Session - Turn Lights Off
+        \ Calculate % Correct and % Incorrect
+  0.01": OFF ^HouseLight, ^LeftLight, ^RightLight;
+         IF B(0) = 0 [@NoCalc, @Calculate]
+            @NoCalc: ---> S5
+            @Calculate: SET B(4) = B(1) / B(0) * 100;
+                        SET B(5) = B(2) / B(0) * 100;
+                        SHOW 7,% Correct,B(4), 8,% Incorrect,B(5) ---> S5
+
+S5,     \ Holding State at End of Session
+  1': ---> SX
+
+
+\***************************************************
+\             LEFT LEVER RESPONSE ARRAY
+\***************************************************
+S.S.3,
+S1,
+  #START: ---> S2
+
+S2,
+  #R^LeftLever: SET L(I) = S, I = I + 1, L(I) = -987.987 ---> SX
+  #Z^Z_End: ---> S1
+
+
+\***************************************************
+\            RIGHT LEVER RESPONSE ARRAY
+\***************************************************
+S.S.4,
+S1,
+  #START: ---> S2
+
+S2,
+  #R^RightLever: SET R(J) = S, J = J + 1, R(J) = -987.987 ---> SX
+  #Z^Z_End: ---> S1
+
+
+\***************************************************
+\               REWARD CONTROL TIMER
+\***************************************************
+S.S.5,
+S1,
+  #Z^Z_Reward: ON ^Pellet ---> S2
+
+S2,     \ Time Reward Device for 0.05" seconds
+  0.05": OFF ^Pellet ---> S1
+
+
+\***************************************************
+\                  UPDATE DISPLAY
+\***************************************************
+S.S.6,
+S1,
+  #START: SHOW 2,Correct Rsp,B(1), 3,Incorrect Rsp,B(2), 4,Rewards,B(3) ---> S2
+
+S2,
+  1": SHOW 2,Correct Rsp,B(1), 3,Incorrect Rsp,B(2), 4,Rewards,B(3) ---> S2
