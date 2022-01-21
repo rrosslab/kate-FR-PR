@@ -1,0 +1,254 @@
+\ Copyright (c) 2013 MEDState Notation Repository, All rights reserved.
+
+\ ProgressiveRatio_v2.mpc
+\
+\ When the program is started it will turn on the HouseLight and the lights over
+\ both Levers, and the current PR Value will be set to the first value drawn in
+\ order from List Z.  The program will then wait for the Animal to respond on
+\ the Correct Lever enough times to meet the current PR Value.
+\
+\ When the current PR Value has been met the program will turn on the Reward
+\ Device for the Reward Time.  At the end of the Reward Time the program will
+\ time the Time Out Following Reward.
+\
+\ When the Time Out Following Reward has been completed the program set the
+\ current PR Value to the next value drawn in order from List Z.
+\
+\ The program will then once again wait for the Animal to respond on the Correct
+\ Lever enough times to meet the current PR Value.
+\
+\ Responses on the Incorrect Lever will be recorded, but have no adverse affect.
+\
+\ The program will end when the Session Length has been reached.
+
+
+\ Inputs
+^LeftLever  = 1
+^RightLever = 2
+
+\ Outputs
+^Pellet     = 3
+^Dipper     = 3  \ If both Pellet and Dipper are ordered
+                 \ It will be necessary to change one of these
+
+^HouseLight = 7
+^Pump       = 8
+^LeftLight = 1
+^RightLight = 2
+
+\ A() = Control Variables with Assigned Aliases as Defined
+Var_Alias Session Length (min)                       = A(0)  \ Default = 60 minutes
+Var_Alias Correct Lever (1=Left  2=Right)            = A(1)  \ Default = 1-Left
+Var_Alias Reward Device (1=Pellet  2=Dipper  3=Pump) = A(2)  \ Default = 1-Pellet
+Var_Alias Reward Time (sec)                          = A(3)  \ Default = 0.05 seconds
+Var_Alias Time Out Following Reward (sec)            = A(4)  \ Default = 0 seconds
+Var_Alias SoftCR Data Array (1=Yes  0=No)            = A(5)  \ Default = 1-Yes
+
+^Session      = 0
+^CorrectLev   = 1
+^RewardDevice = 2
+^RewardTime   = 3
+^TimeOut      = 4
+^SoftCR       = 5
+^RewardTicks  = 6
+^TimeOutTicks = 7
+
+
+\ List Data Variables Here
+\  B() = Response Counts
+\  B(0) = Total Responses
+\  B(1) = Total Correct   Response Count
+\  B(2) = Total Incorrect Response Count
+\  B(3) = Total Rewards
+\  B(4) = % Correct
+\  B(5) = % Incorrect
+\  B(6) = Last PR Value that was Met
+
+
+\  Q() = Left  Lever Response Array
+\  Y() = Right Lever Response Array
+
+
+\ List Working Variables Here
+\  I   = Subscript for the IRT Array C
+\  P   = Current PR Value
+\  R   = Ratio Response Counter
+\  S   = Elapsed Time in Session
+\  X   = Subscript for Progressive Ratio List Z
+\  Z() = Progressive Ratio Default List
+\  T = Index into Left  Lever Response Array L
+\  U = Index into Right Lever Response Array R
+
+
+DIM A = 7
+DIM B = 6
+DIM Q = 10000
+DIM Y = 10000
+
+LIST Z =   5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85,
+90, 95, 100, 105, 110, 115, 120, 125, 130, 135, 140, 145, 150, 155, 160, 165, 170,
+175, 180, 185, 190, 195, 200, 205, 210, 215, 220, 225, 230, 235, 240, 245, 250,
+255, 260, 265, 270, 275, 280, 285, 290, 295, 300, 305, 310, 315, 320, 325, 330, 335,
+340, 345, 350, 355, 360, 365, 370, 375, 380, 385, 390, 395, 400, 405, 410, 415, 420,
+425, 430, 435, 440, 445, 450, 455, 460, 465, 470, 475, 480, 485, 490, 495, 500, 505,
+510, 515, 520, 525, 530, 535, 540, 545, 550, 555, 560, 565, 570, 575, 580, 585, 590,
+595, 600
+
+\ Alternative Progressive Ratio List
+\LIST Z =    1,    2,    4,   9,  12,  15,  20,  25,  32,  40,  50,  62,   77,
+\           95,  118,  145, 178, 219, 268, 328, 402, 492, 603, 737, 901, 1102,
+\         1347, 1647, 2012
+\ This list derived from the following equation:
+\                   [  (injection number * 0.2)]
+\  Response ratio = [5e                        ] - 5    (Richardson and Roberts, 1996)
+
+
+
+\ Z-Pulses Used in this Program
+^Z_Pellet    = 1   \ Signal Pellet Reinforcement
+^Z_Dipper    = 2   \ Signal Dipper Reinforcement
+^Z_Pump      = 3   \ Signal Pump Reinforcement
+^Z_EndReward = 4   \ Signal End of Reward
+^Z_End       = 32  \ Signal End of Session
+
+
+\***************************************************
+\            Progressive Ratio Schedule
+\  S1 - Set Default Values
+\       Session Length             (60 minutes)
+\       Correct Lever              (1-Left)
+\       Reward Device              (1-Pellet)
+\       Reward Time                (0.05 seconds)
+\       Time Out Following Reward  (0 seconds)
+\       SoftCR Data Array          (1-Yes)
+\***************************************************
+S.S.1,
+S1,
+  0.01": SET A(^Session)    = 60,   A(^CorrectLev) = 1, A(^RewardDevice) = 1;
+         SET A(^RewardTime) = 0.05, A(^TimeOut)    = 0, A(^SoftCR)       = 1 ---> S2
+
+S2,     \ First Statement: Wait for START signal, turn HouseLight ON
+        \ and turn associated stimulus ON.
+        \
+        \ Second Statement: Update screen display with default values
+        \ for Control Variables.  This will show any changes made via
+        \ the "Configure | Change Variables" Window prior to START.
+  #START: CLEAR 1,200;
+          SET A(^RewardTicks)  = A(^RewardTime) * 1";
+          SET A(^TimeOutTicks) = A(^TimeOut)    * 1";
+          ON ^HouseLight, ^LeftLight, ^RightLight;
+          SHOW 1,Session,S/60 ---> S3
+  1": SHOW 1,Session Length,A(^Session), 2,Correct Lever,A(^CorrectLev), 3,Reward Device,A(^RewardDevice);
+      SHOW 4,Reward Time,A(^RewardTime), 5,Time Out,A(^TimeOut),         6,SoftCR Code,A(^SoftCR) ---> SX
+
+S3,     \ Time Session Length
+  0.01": SET S = S + 0.01;
+         SHOW 1,Session,S/60;
+         IF S/60 >= A(^Session) [@EndSession, @ContinueTiming]
+            @End: Z^Z_End ---> S4
+            @Cont: ---> SX
+
+S4,     \ Wait for Screen Update and end with
+        \ STOPABORTFLUSH for Automatic Data Saving
+  2": ---> STOPABORTFLUSH
+
+
+\***************************************************
+\                   MAIN PROGRAM
+\***************************************************
+S.S.2,
+S1,     \ Draw first Progressive Ratio from List Z
+  #START: LIST P = Z(X) ---> S2
+
+S2,     \ Test for Correct Lever
+  #RA(^CorrectLev): ADD B(0), B(1), R;
+                    IF R >= P [@PR_Value_Met, @False]
+                       @PR_Met: ADD B(3);
+                                SET B(6) = P, R = 0;
+                                ZA(^RewardDevice) ---> S3
+                       @False: ---> SX
+  #R^LeftLever:  ADD B(0), B(2) ---> SX
+  #R^RightLever: ADD B(0), B(2) ---> SX
+  #Z^Z_End: ---> S5
+
+S3,     \ Wait for End of Reward Signal
+  #Z^Z_End:       ---> S5
+  #Z^Z_EndReward: ---> S4
+
+S4,     \ Time Out Interval Following Reward
+        \ Update Progressive Ratio P from LIST Z
+  A(^TimeOutTicks)#T: LIST P = Z(X) ---> S2
+  #Z^Z_End: ---> S5
+
+S5,     \ End of Session - Turn Lights Off
+        \ Calculate % Correct and % Incorrect
+  0.01": OFF ^HouseLight, ^LeftLight, ^RightLight;
+         IF B(0) = 0 [@NoCalc, @Calculate]
+            @NoCalc: ---> S6
+            @Calculate: SET B(4) = B(1) / B(0) * 100;
+                        SET B(5) = B(2) / B(0) * 100;
+                        SHOW 7,% Correct,B(4), 8,% Incorrect,B(5), 10,Last PR Met,B(6) ---> S6
+
+S6,     \ Holding State at End of Session
+  1': ---> SX
+
+
+
+
+
+
+\***************************************************
+\             LEFT LEVER RESPONSE ARRAY
+\***************************************************
+S.S.3,
+S1,
+  #START: ---> S2
+
+S2,
+  #R^LeftLever: SET Q(T) = S, T = T + 1, Q(T) = -987.987 ---> SX
+  #Z^Z_End: ---> S1
+
+
+\***************************************************
+\            RIGHT LEVER RESPONSE ARRAY
+\***************************************************
+S.S.4,
+S1,
+  #START: ---> S2
+
+S2,
+  #R^RightLever: SET Y(U) = S, U = U + 1, Y(U) = -987.987 ---> SX
+  #Z^Z_End: ---> S1
+
+
+
+
+
+
+
+
+
+\***************************************************
+\               REWARD CONTROL TIMER
+\***************************************************
+S.S.5,
+S1,
+  #Z^Z_Pellet: ON ^Pellet ---> S2
+  #Z^Z_Dipper: ON ^Dipper ---> S2
+  #Z^Z_Pump:   ON ^Pump   ---> S2
+
+S2,     \ Time Reward Device for A(^RewardTime) seconds
+        \ Default value set in S.S.1, S1 & S2
+  A(^RewardTicks)#T: OFF ^Pellet, ^Dipper, ^Pump;
+                     Z^Z_EndReward ---> S1
+
+
+\***************************************************
+\                  UPDATE DISPLAY
+\***************************************************
+S.S.6,
+S1,
+  #START: SHOW 2,Correct Rsp,B(1), 3,Incorrect Rsp,B(2), 4,Rewards,B(3), 5,PR Value,P ---> S2
+
+S2,
+  1": SHOW 2,Correct Rsp,B(1), 3,Incorrect Rsp,B(2), 4,Rewards,B(3), 5,PR Value,P ---> S2
